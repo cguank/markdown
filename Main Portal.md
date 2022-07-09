@@ -14,4 +14,4 @@ qiankun框架主应用通过子应用的entry.js来访问子应用，这样即�
 子应用由于registerMicroApps设置了container，子应用路径/adminv2/xxx开头都会通过乾坤匹配到SubAppContainer这个组建，appContainerId这个结点内
 ![[image/Pasted image 20220709163128.png]]
 至于Menu，在主应用中已经设置，里面包含了子应用的path
-![[image/Pasted image 20220709163147.png]]
+![[./image/Pasted image 20220709163147.png]]
