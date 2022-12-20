@@ -12,6 +12,8 @@ localStorage.getItem('SHOPEE_DEV_TOOLS_APP_ENTRY')
 - 部署在jenkins上配置，主要就是遵守配置规则
 - 在partner portal主portal下也会设置shopeepay子portal的实际访问地址
 - 【待确认】通过乾坤匹配子portal规则来访问相应的地址
+- https://qiankun.umijs.org/zh/api#registermicroappsapps-lifecycles
+- https://juejin.cn/post/6987296209807343623
 ### shopeepay portal
 
 ## duitnow check eligibility优化
