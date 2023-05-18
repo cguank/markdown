@@ -84,7 +84,19 @@ function completeWork (workInProgress) {
 ## 3. render workflow
 FIXME 流程图
 ### 3.1beginWork
-对workInProgress Fiber的子节点进行diff算法，diff算法会创建子fiber，return 第一个子节点
+- 对workInProgress Fiber的子节点进行diff算法，diff算法会创建子fiber，return 第一个子节点
+- mount的时候会给rootFiber的子fiber（只给App函数）标记为Placement
+```ts
+function placeSingleChild(newFiber: Fiber): Fiber {
+    // This is simpler for the single child case. We only need to do a
+    // placement for inserting new children.
+    // shouldTrackSideEffects只有在mount的时候为true
+    if (shouldTrackSideEffects && newFiber.alternate === null) {
+      newFiber.flags |= Placement;
+    }
+    return newFiber;
+  }
+```
 ### 3.2 performUnitOfWork
 1. 执行beginWork 
 2. 设置属性 ```  unitOfWork.memoizedProps = unitOfWork.pendingProps;``` 
@@ -103,12 +115,12 @@ FIXME 流程图
 - 赋值到workInProgress.updateQueue
 - 如果有不同的属性，则workInProgress.flag 加上update标记
 3. else mount操作
-- 创建dom节点，
+- 创建dom节点，并将props赋值到dom[__reactProps$]
 - 向里面添加子节点appendAllChildren：由于子结点向上递归执行completeWork，所以子结点已经构建好了dom tree，只需添加子结点即可
 - fiber.stateNode=dom节点
-- 调用finalizeInitialChildren设置dom节点的各种属性和事件，e.g. style textContent、click
-- 处理subTreeFlags
-- return null
+- 调用finalizeInitialChildren设置dom节点的各种属性，e.g. style textContent
+4. 处理subTreeFlags: 不断或（|）所有子节点的subTreeFlags
+5. return null
 ## 4. diff 算法
 ### 4.1 reconcileChildrenArray
 #### 4.1.1 flow
@@ -123,7 +135,7 @@ elementType 相同则复用；不同则创建新的，且标记老的为删除
 - 第二个：新的还有，如果老的已经遍历完，则直接创建新的，返回newFirstChildFiber
 - 第三个：新老都有
 ```
-缓存老的在map中，开始第三轮
+缓存老的在map中，开始遍历剩余新的
 begin
 	通过key取出老的，对比key和elementType，相同复用；不同则创建新的
 	更新lastPlacedIndex
@@ -160,7 +172,7 @@ const key = element.key;
 let child = currentFirstChild;
 begin child != null
 	if key相同且elementType相同则复用，并删除剩余的child，return existing
-	if key相同且elementType不同，则删除剩余的child，break循环
+	if key相同且elementType不同，则删除当前和剩余的child，break循环
 	if key不同则删除当前结点，继续循环（可能silbing有相同的key）
 	child = child.silbing
 end
@@ -170,6 +182,198 @@ end
 ## 5.Schedule and Entrance
 [[React schedule and entrace.drawio.svg]]
 
+## 6. commit flow
+1. 首先会调flushPassiveEffects确保清除当前副作用（还没遇到过，一开始存在副作用情况）
+2. 如果树中存在副作用，schedule设置清除副作用
+```js
+if (
+(finishedWork.subtreeFlags & PassiveMask) !== NoFlags ||
+(finishedWork.flags & PassiveMask) !== NoFlags
+) {
+	if (!rootDoesHavePassiveEffects) {
+	rootDoesHavePassiveEffects = true;
+	...
+	scheduleCallback(NormalSchedulerPriority, () => {
+		flushPassiveEffects();
+		return null;
+	});
+	}
+}
+```
+3. commitBeforeMutationEffects
+- 从子->兄弟->父遍历，如果是class组组件执行instance.getSnapshotBeforeUpdate
+4. commitMutationEffects 这个阶段会渲染dom树，并执行layout的destroy函数
+- flow 开始
+- 从父节点开始向子节点递归，只是从屏幕中删除flag标记为deleted的结点，如果删除节点有destroy layout也会在这个阶段执行（destroy effect会在2阶段回调函数中执行）
+- 父节点通过subTreeFlag 是否存在 MutationMask，存在则从子节点递归重新进入flow，不存则在通过fiber.flags & placement or fiber.flags & update在屏幕上插入dom树或者，通过updateQueue更新dom属性并将props赋值到dom[__reactProps$]，并执行layout destroy函数
+5. commitLayoutEffects
+从子到父执行layout create函数
+## 7. hooks
+```js
+// 通过current fiber是否存在来决定是mount还是update
+ReactCurrentDispatcher.current =
+      current === null || current.memoizedState === null
+        ? HooksDispatcherOnMount
+        : HooksDispatcherOnUpdate;
+```
+### 7.1 useState
+- mountState
+```js
+function mountState<S>(
+  initialState: (() => S) | S,
+): [S, Dispatch<BasicStateAction<S>>] {
+	// 创建hook，并返回
+  const hook = mountWorkInProgressHook();
+  if (typeof initialState === 'function') {
+    initialState = initialState();
+  }
+  hook.memoizedState = hook.baseState = initialState;
+  const queue: UpdateQueue<S, BasicStateAction<S>> = {
+    pending: null, // 表示当前正在等待处理的更新，保存着update对象
+    interleaved: null, // 表示当前正在处理的更新
+    lanes: NoLanes,
+    dispatch: null,
+    lastRenderedReducer: basicStateReducer,
+    lastRenderedState: (initialState: any),
+  };
+  hook.queue = queue;
+  const dispatch: Dispatch<
+    BasicStateAction<S>,
+  > = (queue.dispatch = (dispatchSetState.bind(
+    null,
+    currentlyRenderingFiber,
+    queue,
+  ): any));
+  return [hook.memoizedState, dispatch];
+}
+```
+- updateState/updateReducer
+```js
+function updateReducer<S, I, A>(
+  reducer: (S, A) => S,
+  initialArg: I,
+  init?: I => S,
+): [S, Dispatch<A>] {
+	// 获取当前的hook
+  const hook = updateWorkInProgressHook();
+  const queue = hook.queue;
+	... 拼接pendingQueue到baseQueue，注意是循环链表
+	... 遍历queue，顺序计算newState，涉及到根据优先级跳过当前update
+    do {
+	    const action = update.action;
+      newState = reducer(newState, action);
+      update = update.next;
+    } while (update !== null && update !== first);
+    
+    hook.memoizedState = newState;
+    hook.baseState = newBaseState;
+    hook.baseQueue = newBaseQueueLast;
+    queue.lastRenderedState = newState;
+  }
+	...
+  const dispatch: Dispatch<A> = (queue.dispatch: any);
+  return [hook.memoizedState, dispatch];
+}
+```
+- dispatchAction 
+```ts
+function dispatchSetState<S, A>(
+  fiber: Fiber,
+  queue: UpdateQueue<S, A>,
+  action: A,
+) {
+  const lane = requestUpdateLane(fiber);
+  const update: Update<S, A> = {
+    lane,
+    action,
+    hasEagerState: false,
+    eagerState: null,
+    next: (null: any),
+  };
+
+  .....
+  将update添加进queue
+	......
+	// 会调用 ensureRootIsScheduled
+  scheduleUpdateOnFiber(root, fiber, lane, eventTime);
+}
+```
+### 7.2 useEffect
+- mountEffect
+```ts
+function mountEffectImpl(fiberFlags, hookFlags, create, deps): void {
+  const hook = mountWorkInProgressHook();
+  const nextDeps = deps === undefined ? null : deps;
+  currentlyRenderingFiber.flags |= fiberFlags;
+  // 将新的effect加入循环链表并返回
+  hook.memoizedState = pushEffect(
+    HookHasEffect | hookFlags,
+    create,
+    undefined,
+    nextDeps,
+  );
+}
+```
+```ts
+function pushEffect(tag, create, destroy, deps) {
+  const effect: Effect = {
+    tag,
+    create,
+    destroy,
+    deps,
+    // Circular
+    next: (null: any),
+  };
+  let componentUpdateQueue: null | FunctionComponentUpdateQueue = (currentlyRenderingFiber.updateQueue: any);
+  if (componentUpdateQueue === null) {
+    componentUpdateQueue = createFunctionComponentUpdateQueue();
+    currentlyRenderingFiber.updateQueue = (componentUpdateQueue: any);
+    componentUpdateQueue.lastEffect = effect.next = effect;
+  } else {
+    const lastEffect = componentUpdateQueue.lastEffect;
+    if (lastEffect === null) {
+      componentUpdateQueue.lastEffect = effect.next = effect;
+    } else {
+      const firstEffect = lastEffect.next;
+      lastEffect.next = effect;
+      effect.next = firstEffect;
+      componentUpdateQueue.lastEffect = effect;
+    }
+  }
+  return effect;
+}
+```
+- updateEffect
+```ts
+function updateEffectImpl(fiberFlags, hookFlags, create, deps): void {
+	// 获得当前hook
+  const hook = updateWorkInProgressHook();
+  const nextDeps = deps === undefined ? null : deps;
+  let destroy = undefined;
+
+  if (currentHook !== null) {
+    const prevEffect = currentHook.memoizedState;
+    destroy = prevEffect.destroy;
+    if (nextDeps !== null) {
+      const prevDeps = prevEffect.deps;
+      if (areHookInputsEqual(nextDeps, prevDeps)) {
+	      // 注意如果依赖相同effect就没有HookHasEffect这个flag，也就不会执行
+        hook.memoizedState = pushEffect(hookFlags, create, destroy, nextDeps);
+        return;
+      }
+    }
+  }
+
+  currentlyRenderingFiber.flags |= fiberFlags;
+
+  hook.memoizedState = pushEffect(
+    HookHasEffect | hookFlags,
+    create,
+    destroy,
+    nextDeps,
+  );
+}
+```
 ## 15.浏览器每帧执行
 ```
 一个task(宏任务) -- 队列中全部job(微任务) -- requestAnimationFrame -- 浏览器重排/重绘 -- requestIdleCallback
@@ -186,6 +390,9 @@ end
 
 # Question
 ### 1. 为何commitWork的时候没有更新onclick，onclick是在哪里更新的
+react props key: __reactProps$，赋值为mount时在completeWork创建实例的时候，更新为commitMutationEffects阶段
+commitWork或completeWork设置的click事件都是空函数，主要由页面冒泡处理
+[React 事件源码解析 - 掘金 (juejin.cn)](https://juejin.cn/post/7231428738914287677)
 ### 2. root fiber 的 updateQueue的作用
 ![[initialFlow.png]]
 - rootFiber, updateQueue是在updateContainer里创建的
@@ -201,4 +408,28 @@ const created = createFiberFromElement(element, returnFiber.mode, lanes);
 ...
 ...
 return created;
+```
+### 3. 为何mount的时候rootFiber的current不为null
+renderRootSync/renderRootConcurrent会调用prepareFreshStack
+```ts
+// function prepareFreshStack 
+const rootWorkInProgress = createWorkInProgress(root.current, null);
+workInProgress = rootWorkInProgress;
+
+function createWorkInProgress(current: Fiber, pendingProps: any): Fiber {
+  let workInProgress = current.alternate;
+  if (workInProgress === null) {
+    workInProgress = createFiber(
+      current.tag,
+      pendingProps,
+      current.key,
+      current.mode,
+    );
+    workInProgress.elementType = current.elementType;
+    workInProgress.type = current.type;
+    workInProgress.stateNode = current.stateNode;
+
+    workInProgress.alternate = current;
+    current.alternate = workInProgress;
+  } else {....}
 ```
