@@ -433,3 +433,68 @@ function createWorkInProgress(current: Fiber, pendingProps: any): Fiber {
     current.alternate = workInProgress;
   } else {....}
 ```
+### 4.组件什么时候会跳过diff
+只要有调用函数组件去生成JSX（renderWithHooks父组件调用自身函数），那么子组件的oldProps和newProps肯定是不同的对象（父函数调用重新生成了不同对象，即便没传东西给子组件也会有个空对象），那么肯定会执行diff
+```ts
+// 如果父函数调用自身，props肯定不同，即便是空对象
+const oldProps = current.memoizedProps;
+const newProps = workInProgress.pendingProps;
+if (oldProps !== newProps } {...需要去diff }
+else {
+	// check wip.lanes, lans不包括更新则调用
+	return attemptEarlyBailoutIfNoScheduledUpdate
+}
+
+// attemptEarlyBailoutIfNoScheduledUpdate
+// 子树是否有更新
+if wip.childLans 不包括更新, return null
+else {
+	cloneChildFibers(current, workInProgress);
+	return workInProgress.child;
+}
+
+// cloneChildFibers
+// 注意这个pendingProps取的是cureent
+// 即当前组件复用，那么传给子组件的props也是相同的对象
+let newChild = createWorkInProgress(currentChild, currentChild.pendingProps);
+workInProgress.child = newChild;
+```
+### 5.useLayout和useEffect
+- useEffect 在渲染时是异步执行，并且要等到浏览器将所有变化渲染到屏幕后才会被执行。
+- useLayoutEffect 在渲染时是同步执行，在渲染前完成（废话，渲染是异步的）
+##### 5.1之前以为layout是在dom渲染完成后执行
+- 之所以有这样的误解，从源码上看,commitMutationEffects先操作dom，接下来执行commitLayoutEffects调用layout create函数。
+- 从debug的表现也是这样的
+##### 5.2 实际上
+- 首先页面实际执行，是layout先执行，执行完后才渲染dom。debug时候js线程可能处于空闲状态，导致dom先完成渲染
+- 注意事件循环
+```
+一个task(宏任务) -- 队列中全部job(微任务) -- requestAnimationFrame -- 浏览器重排/重绘 -- requestIdleCallback
+```
+浏览器重排/重绘就是dom渲染，此时需要该宏任务中的同步代码执行完，接着微任务执行完，才到dom渲染。
+所以，commitMutationEffects执行后立马执行commitLayoutEffects，等所有同步任务执行完，js线程空闲了才会去渲染dom
+##### 5.3 useEffect的执行时机
+- 是异步的吗？yes
+commit flow 在调用 commitMutationEffects之前会根据树中是否存在effect副作用来设置schdule
+```ts
+if (
+    (finishedWork.subtreeFlags & PassiveMask) !== NoFlags ||
+    (finishedWork.flags & PassiveMask) !== NoFlags
+  ) {
+    if (!rootDoesHavePassiveEffects) {
+      rootDoesHavePassiveEffects = true;
+      pendingPassiveEffectsRemainingLanes = remainingLanes;
+      pendingPassiveTransitions = transitions;
+      // 这里设置了回调，通过postMessage触发（宏任务）
+      scheduleCallback(NormalSchedulerPriority, () => {
+        flushPassiveEffects();
+        return null;
+      });
+    }
+  }
+```
+这个schedule的到期时间为5000
+var NORMAL_PRIORITY_TIMEOUT = 5000;
+- 是怎么处理lan的？
+设置为NormalSchedulerPriority
+https://juejin.cn/post/7008802041602506765
