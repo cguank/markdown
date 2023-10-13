@@ -5,6 +5,8 @@
 原生 DOM组件 对应的 Fiber节点
 ### 1.3 stateNode
 refers to the component instance a fiber belongs to
+### 1.4 fiberRoot 和 rootFiber
+fiberRoot是实例，current指向rootFiber，rootFiber.stateNode指向fiberRoot
 
 # 2. workloop
 workloop的主要结构
@@ -409,12 +411,21 @@ const created = createFiberFromElement(element, returnFiber.mode, lanes);
 ...
 return created;
 ```
-### 3. 为何mount的时候rootFiber的current不为null
+### 3. 为何mount的时候current rootFiber不为null
 renderRootSync/renderRootConcurrent会调用prepareFreshStack
 ```ts
-// function prepareFreshStack 
+// createRoot -> createFiberRoot
+const uninitializedFiber = createHostRootFiber(
+    tag,
+    isStrictMode,
+    concurrentUpdatesByDefaultOverride,
+  );
+root.current = uninitializedFiber;
+
+// function prepareFreshStack(root,....)
+// 此时root为fiberRoot，root.current在createRoot的时候就赋值
 const rootWorkInProgress = createWorkInProgress(root.current, null);
-workInProgress = rootWorkInProgress;
+workInProgress = rootWorkInProgress; // 之后走workloop workInProgress就不为null了
 
 function createWorkInProgress(current: Fiber, pendingProps: any): Fiber {
   let workInProgress = current.alternate;
