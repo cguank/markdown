@@ -137,7 +137,7 @@ elementType 相同则复用；不同则创建新的，且标记老的为删除
 - 第二个：新的还有，如果老的已经遍历完，则直接创建新的，返回newFirstChildFiber
 - 第三个：新老都有
 ```
-缓存老的在map中，开始遍历剩余新的
+通过key缓存老的在map中，开始遍历剩余新的
 begin
 	通过key取出老的，对比key和elementType，相同复用；不同则创建新的
 	更新lastPlacedIndex
@@ -173,8 +173,8 @@ if (current !== null) {
 const key = element.key;
 let child = currentFirstChild;
 begin child != null
-	if key相同且elementType相同则复用，并删除剩余的child，return existing
-	if key相同且elementType不同，则删除当前和剩余的child，break循环
+	if key相同且elementType相同则复用，并删除剩余的silbing，return existing
+	if key相同且elementType不同，则删除当前和剩余的silbing，break循环
 	if key不同则删除当前结点，继续循环（可能silbing有相同的key）
 	child = child.silbing
 end
@@ -383,7 +383,7 @@ function updateEffectImpl(fiberFlags, hookFlags, create, deps): void {
 # 参考资料
 - https://indepth.dev/posts/1008/inside-fiber-in-depth-overview-of-the-new-reconciliation-algorithm-in-react
 - https://juejin.cn/post/7143134747114340382
-- [diff算法](|https://juejin.cn/post/6925342156135596046)
+- [diff算法](https://juejin.cn/post/6925342156135596046)
 - [简单的useState](https://code.h5jun.com/woniq/1/edit?js,console)
 - [useState](https://www.xiabingbao.com/post/react/react-usestate-rn5bc0.html) 
 - https://xiaochen1024.com/article_item/600acb68245877002ed5defe
