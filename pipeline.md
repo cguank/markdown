@@ -38,4 +38,20 @@ main-manifest:- 根据rn_version:2.0.2获取live的main manifest: [https://deo.
 ### PV 和 RN Bundle Version
 - pv来自于部署填的release tag，用来告诉native是否已经加载了bundle
 - RN Bundle Version 来自于 host部署前，RM修改的配置json 
-![[Pasted image 20240102104931.png]]![[Pasted image 20240102105409.png]]
+![[releaseTag.png]]![[rn-version-config.png]]
+### 部署流程
+首先RN采用插件架构
+![[RN框架.png]]
+部署则是分为3个部分：各个插件独立部署（打包），组装，发布。
+![[部署总览.png]]
+- 各个插件各自打包，会生成bundle文件并和图片一起上传到cdn，同时会生成清单文件 包括，bundle 和 翻译文件的url；md5；更新时间
+- 组装：host仓库有各个插件的最新releaseTag，它会去下载所有插件的manifest，并组装成hash-main-manifest，以此生成hash-meta-main-manifest。等待发布
+- 发布：选择组装的hash-main-manifest、hash-meta-main-manifest替换线上的main和meta manifest
+#### 非live
+该插件带有pfb和线上的其他插件组成清单文件，app请求manifest服务器带上该pfb cookie
+
+
+### 补丁包是在哪个步骤生成的
+独立部署的时候会和线上版本对比生成补丁文件
+### app如何拉取清单文件
+![[app拉取manifest.png]]
