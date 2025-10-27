@@ -1,6 +1,14 @@
 [流程图](https://excalidraw.com/#json=TdEqEhiIyJp0QRJtPynI6,cP5_hYrf6hA2AwUtvKeXEA)
 
 ## 1. 背景
+- 在进入业务页面前需要一系列的前置校验，如果将前置校验放在业务页面则用户体验不好（先跳转过去空白loading页面，不通过则会pop back），而目前则是前置校验放在下游页面，这就造成本来各自独立的业务有了一定程度的耦合。
+- 此外由于框架限制，第三方页面可以不受限制跳转业务页面，开发进行业务调整时需要格外小心。
+![[Pasted image 20250605201205.png]]
+- 因此，我们提出了路由守卫，上游页面的前置校验放在路由守卫完成，彻底解藕上下游页面和解决跳转不受限制的问题。
+![[Pasted image 20250605201826.png]]
+RN架构图
+https://docs.qq.com/doc/DRFhiUWRmcGZLVm52?no_promotion=1
+
 ## 2.画整体时序图
 ![[Pasted image 20250605111951.png]]
 ![[Pasted image 20250605112015.png]]
